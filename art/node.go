@@ -17,8 +17,8 @@ const (
 )
 
 const (
-	MIN_NODE4 = 0 // shrink lower limit
-	MAX_NODE4 = 4 // expansion upper limit
+	MIN_NODE4 = 0 // 节点收缩下限
+	MAX_NODE4 = 4 // 节点膨胀上限
 
 	MIN_NODE16 = 5
 	MAX_NODE16 = 16
@@ -29,7 +29,7 @@ const (
 	MIN_NODE256 = 49
 	MAX_NODE256 = 256
 
-	MAX_PREFIX_LEN = 8 // line between pessimistic and optimistic search mode
+	MAX_PREFIX_LEN = 8 // 当前缀超过 8 bytes 则从悲观模式切换到乐观模式
 )
 
 func (n *node) maxSize() (size int) {
@@ -47,14 +47,14 @@ func (n *node) maxSize() (size int) {
 }
 
 type node struct {
-	size     int // can't use len(keys) as node current size
+	size     int // node 的其他字段均为预分配，其长度不能作为子节点数量
 	nodeType nodeType
 
 	// internal node
-	keys      []byte  // keys
-	childs    []*node // typo // key byte -> child *node
-	prefix    []byte  // pessimistic, switch to optimistic mode when prefix reach 8 bytes
-	prefixLen int     // optimistic, just skip prefixLen partial keys, at last compare whole key in leaf node
+	keys      []byte  // 有序的子节点 key
+	childs    []*node // 指向子节点的指针
+	prefix    []byte  // 悲观模式, 为了节省空间，实际只存储一部分公共前缀，最长为 MAX_PREFIX_LEN
+	prefixLen int     // 乐观模式，记录完整的前缀长度，比较时找到叶子节点才回溯比较
 
 	// leaf node
 	key []byte
@@ -92,7 +92,7 @@ func newNode16() *node {
 func newNode48() *node {
 	return &node{
 		nodeType: NODE48,
-		keys:     make([]byte, MAX_NODE256), // keys has 256 index
+		keys:     make([]byte, MAX_NODE256), // node48 的 keys 有 256 bytes，查找和空间的折中
 		childs:   make([]*node, MAX_NODE48),
 		prefix:   make([]byte, MAX_PREFIX_LEN),
 	}
@@ -126,14 +126,14 @@ func (n *node) isFull() bool {
 //
 // utils
 //
-// node copy
+// 从低节点 lower 直接拷贝元信息
 func (n *node) copyMeta(lower *node) {
 	n.size = lower.size
 	n.prefix = lower.prefix
 	n.prefixLen = lower.prefixLen
 }
 
-// only use for node48 or node256 which has 256 bytes keys
+// 映射 key 到 child
 func (n *node) key2childRef(k byte) **node {
 	var emptyNode *node = nil
 	if n == nil {
@@ -156,20 +156,20 @@ func (n *node) key2childRef(k byte) **node {
 	return &emptyNode
 }
 
-// find child index for key
+// 通过 key 查找 child 的索引位置
 func (n *node) key2childIndex(k byte) int {
 	switch n.nodeType {
-	case NODE4, NODE16: // TODO: NODE16 can be implement by Intel SSE instruction
-		for i := 0; i < n.size; i++ {
+	case NODE4, NODE16:
+		for i := 0; i < n.size; i++ { // 只能逐个对比 // TODO: NODE16 SSE 优化查找速度
 			if n.keys[i] == k {
 				return i
 			}
 		}
 		return -1
 	case NODE48:
-		i := int(n.keys[k]) // convert byte to index int
+		i := int(n.keys[k]) // 直接取索引
 		if i > 0 {
-			return i - 1 // when node16 grow to node48, or insert to node48, index plus a 1 gap, now need reduce
+			return i - 1 // node16 膨胀为 node48 时，所有的 key 都自增了 1，此处需还原 child 真正的索引位置
 		}
 		return -1
 	case NODE256:
@@ -178,7 +178,7 @@ func (n *node) key2childIndex(k byte) int {
 	return -1
 }
 
-// get match length with other node from index start
+// 比较与 other 的公共前缀部分的长度
 func (n *node) matchPrefixLen(other *node, start int) int {
 	end := utils.Min(len(n.key), len(other.key))
 	i := start
@@ -190,24 +190,23 @@ func (n *node) matchPrefixLen(other *node, start int) int {
 	return i - start
 }
 
-// get mismatch length with new key
+// 与 key 比较，获取第一个不匹配字节在 n.key 中的索引位置
 func (n *node) mismatchPrefixLen(key []byte, depth int) int {
 	if n.prefixLen <= MAX_PREFIX_LEN {
-		// optimistic
+		// 悲观模式：逐个比较
 		for i := 0; i < n.prefixLen; i++ {
-			if key[depth+i] != n.prefix[depth+i] {
+			if key[depth+i] != n.prefix[i] {
 				return i
 			}
 		}
 	} else {
-		// pessimistic
 		i := 0
 		for ; i < MAX_PREFIX_LEN; i++ {
 			if key[depth+i] != n.prefix[depth+i] {
 				return i
 			}
 		}
-		// now continue compare whole key in min node
+		// 切换为乐观模式：取最左叶子节点的完整 key，再逐一比较
 		leftestLeaf := n.minChild()
 		for ; i < n.prefixLen; i++ {
 			if key[depth+i] != leftestLeaf.key[depth+i] {
@@ -216,10 +215,10 @@ func (n *node) mismatchPrefixLen(key []byte, depth int) int {
 		}
 	}
 
-	return n.prefixLen // sorry, too long to overflow whole prefix
+	return n.prefixLen // 当前节点的索引完全匹配
 }
 
-// leftest leaf
+// 获取最左边的叶子节点，即整棵树的最小 KEY
 func (n *node) minChild() *node {
 	switch n.nodeType {
 	case LEAF:
@@ -231,7 +230,7 @@ func (n *node) minChild() *node {
 		for n.childs[i] == nil {
 			i++
 		}
-		return n.childs[i-1].minChild() // back 1 byte
+		return n.childs[i-1].minChild() // 同样要 -1 还原 child 的真实索引
 	case NODE256:
 		i := 0
 		for n.childs[i] == nil {
