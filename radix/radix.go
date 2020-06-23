@@ -1,7 +1,7 @@
 package radix
 
 import (
-	"strings"
+	"bytes"
 	"trees/utils"
 )
 
@@ -18,178 +18,157 @@ func NewRadixTree() *RadixTree {
 	}
 }
 
-// 新增：创建新的 edge 和 leaf
-// 更新：已作为前缀节点存在，更新值并返回
-//
-// 分三种情况
-// roman   --> romane // 创建为父节点 `roman`
-// romanus --> romane // 创建 `roman` 为父前缀节点
-// romanex --> romane // 创建新叶子子节点 `x`
-//
-func (t *RadixTree) Insert(k string, v interface{}) interface{} {
-	originKey := k
+// 新增或更新
+func (t *RadixTree) Insert(key []byte, val interface{}) {
+	originKey := make([]byte, len(key))
+	copy(originKey, key)
+	newLeaf := &leaf{key: originKey, val: val}
+
 	var parent *node
 	cur := t.root
 
-	// 向下分裂前缀并插入节点
 	for {
-
-		// 修改 root 节点的值
-		// 或是切割后发现是前缀节点，则更新值或添加叶子节点
-		if len(k) == 0 {
+		// 3. 找到目标叶子节点，插入或更新值
+		// 修改 root 节点的值，或切割后发现是前缀节点，则更新值或添加叶子节点
+		if len(key) == 0 {
 			if cur.isLeafNode() {
-				old := cur.leaf.v
-				cur.leaf.v = v
-				return old
+				cur.leaf.val = val
+				return
 			}
-			cur.leaf = &leaf{k: originKey, v: v}
+			cur.leaf = newLeaf
 			t.size++
-			return nil
+			return
 		}
 
 		parent = cur
-		cur = cur.searchEdge(k[0])
+		cur = cur.searchEdge(key[0])
 
-		// 1. 没有边则创建
-		if cur == nil { // root --r--> [prefix:`roman`, k:`romane`]
+		// 1. 没有边指向叶子节点的边则创建
+		if cur == nil {
 			e := edge{
-				label: k[0],
-				node: &node{
-					leaf: &leaf{
-						k: originKey,
-						v: v,
-					},
-					prefix: k,
+				k: key[0],
+				n: &node{
+					leaf:   newLeaf,
+					prefix: key,
 					edges:  nil,
 				},
 			}
 			parent.addEdge(e) // 记录到父节点
 			t.size++
-			return nil
+			return
 		}
 
-		// 2. 有子节点，先找出最长前缀
-		commonLen := utils.LongestPrefix(cur.prefix, k)
+		// 2. 有子节点则分裂
+		commonLen := utils.LongestPrefix(cur.prefix, key)
 		if commonLen == len(cur.prefix) {
-			// 2.1. 节点前缀被完全覆盖，则切割后继续向下走
-			// `romance` --> roman --> `romane`
-			// 			 		   --> `romanus`
-			k = k[commonLen:]
+			// 2.1. 当前节点的前缀被完全覆盖，则分裂后继续下沉
+			key = key[commonLen:]
 			continue
 		}
 
-		// 2.2. 不覆盖节点前缀，则生成父节点，按第一个异构字节分裂出 2 条边，连接到 2 个子节点（一旧一新）
-		// `romane`
-		// `roman` --e--> `romane`
-		// 		   --u--> `romanus`
+		// 2.2. 不覆盖则分裂当前节点
 		commonNode := &node{
-			prefix: k[:commonLen],
+			prefix: key[:commonLen],
 		}
-		parent.replaceEdge(k[0], commonNode) // `r`
-
-		// 将当前节点挪到子节点
+		parent.replaceEdge(key[0], commonNode) // 变更指向到新父节点
 		commonNode.addEdge(edge{
-			label: cur.prefix[commonLen],
-			node:  cur,
+			k: cur.prefix[commonLen],
+			n: cur, // 将当前节点挪到子节点
 		})
-		cur.prefix = cur.prefix[commonLen:] // `romane` --> `e`
+		cur.prefix = cur.prefix[commonLen:] // 切割前缀
 
-		// 创建新节点
-		newLeaf := &leaf{k: originKey, v: v}
-		k = k[commonLen:]
-		if len(k) == 0 { // k 恰好是分裂的前缀，则创建当前叶子节点 // `roman` --> `romane`
+		key = key[commonLen:]
+		if len(key) == 0 { // key 恰好是分裂出的前缀，则 commonNode 为混合节点
 			commonNode.leaf = newLeaf
 			t.size++
-			return nil
+			return
 		}
 
 		commonNode.addEdge(edge{
-			label: k[0],
-			node: &node{
+			k: key[0],
+			n: &node{
+				prefix: key,
 				leaf:   newLeaf,
-				prefix: k,
 			},
 		})
 		t.size++
-		return nil
+		return
 	}
 }
 
 // 删除
-func (t *RadixTree) Delete(k string) (interface{}, bool) {
-
+func (t *RadixTree) Delete(key []byte) bool {
 	var parent *node
-	var label byte
+	var k byte
 	cur := t.root
 
-	// 1. 查找 k 节点
+	// 1. 查找 key 对应的叶子节点
 	for {
-		if len(k) == 0 { // `us`
+		if len(key) == 0 {
 			if !cur.isLeafNode() {
-				return nil, false // 必须要是叶子节点，避免误删
+				return false // 必须是叶子节点，避免删除
 			}
 			break // bingo
 		}
 
 		parent = cur
-		label = k[0]
-		cur = cur.searchEdge(label) // `r` `u`
+		k = key[0]
+		cur = cur.searchEdge(k)
 		if cur == nil {
-			return nil, false // 边不存在
+			return false // 边不存在
 		}
 
-		if !strings.HasPrefix(k, cur.prefix) {
-			return nil, false // 边存在，但节点不存在
+		if !bytes.HasPrefix(key, cur.prefix) {
+			return false // 边存在，但节点不存在
 		}
 
-		// 继续向下查找
-		k = k[len(cur.prefix):] // `romanus` - `roman` = `us`
+		// 切割前缀，继续向下查找
+		key = key[len(cur.prefix):]
 	}
 
 	// 2. 删除叶子节点
-	old := cur.leaf.v
 	cur.leaf = nil
 	t.size--
 
 	switch len(cur.edges) {
 	case 0:
-		// 2.1. 当前节点不是前缀节点，先删除边
-		if parent != nil { // 删的不是 root
-			parent.deleteEdge(label) // `u`
+		// 2.1. 当前节点只是叶子节点，先删除边
+		if parent != nil { // 删 root 不用删边
+			parent.deleteEdge(k)
 		}
 	case 1:
-		// 2.2. 叶子被清理，若只有一个子节点则合并
+		// 2.2. 当前节点是混合节点，且只有一个子节点，删除后要上浮该子节点
 		cur.replaceByOnlyChild()
 	}
 
-	// 3. 若父节点为前缀节点，且只有一个节点，也要合并
+	// 2.3. 若父节点只是前缀节点，且只有一个子节点，要继续上浮
 	if parent != nil && !parent.isLeafNode() && len(parent.edges) == 1 {
 		if parent != t.root { // 根节点不能被替换，之前的 insert 等操作都是从 root 出发
 			parent.replaceByOnlyChild()
 		}
 	}
-	return old, true
+	return true
 }
 
 // 查找
-func (t *RadixTree) Get(k string) (interface{}, bool) {
+func (t *RadixTree) Search(key []byte) interface{} {
 	cur := t.root
 	for {
-		if len(k) == 0 {
+		if len(key) == 0 {
 			if !cur.isLeafNode() {
-				return nil, false
+				return nil
 			}
-			return cur.leaf.v, true
+			return cur.leaf.val
 		}
 
-		cur = cur.searchEdge(k[0])
+		cur = cur.searchEdge(key[0])
 		if cur == nil {
-			return nil, false
+			return nil
 		}
-		if !strings.HasPrefix(k, cur.prefix) {
-			return nil, false
+		if !bytes.HasPrefix(key, cur.prefix) {
+			return nil
 		}
-		k = k[len(cur.prefix):]
+		key = key[len(cur.prefix):]
 	}
 }
 
@@ -200,10 +179,10 @@ func (t *RadixTree) Dump() map[string]interface{} {
 			return
 		}
 		if n.isLeafNode() {
-			m[n.leaf.k] = n.leaf.v
+			m[string(n.leaf.key)] = n.leaf.val
 		}
 		for _, e := range n.edges {
-			traverse(e.node, m)
+			traverse(e.n, m)
 		}
 	}
 	m := make(map[string]interface{})
@@ -215,30 +194,30 @@ func (t *RadixTree) Size() int {
 	return t.size
 }
 
-func (t *RadixTree) Min() (string, interface{}, bool) {
+func (t *RadixTree) Min() ([]byte, interface{}) {
 	cur := t.root
 	for {
 		if cur.isLeafNode() {
-			return cur.leaf.k, cur.leaf.v, true
+			return cur.leaf.key, cur.leaf.val
 		}
 		if cur.isPrefixNode() {
-			cur = cur.edges[0].node
+			cur = cur.edges[0].n
 			continue
 		}
-		return "", nil, false
+		return nil, nil
 	}
 }
 
-func (t *RadixTree) Max() (string, interface{}, bool) {
+func (t *RadixTree) Max() ([]byte, interface{}) {
 	cur := t.root
 	for {
 		if cur.isPrefixNode() {
-			cur = cur.edges[len(cur.edges)-1].node
+			cur = cur.edges[len(cur.edges)-1].n
 			continue
 		}
 		if cur.isLeafNode() {
-			return cur.leaf.k, cur.leaf.v, true
+			return cur.leaf.key, cur.leaf.val
 		}
-		return "", nil, false
+		return nil, nil
 	}
 }

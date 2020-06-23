@@ -1,6 +1,7 @@
 package radix
 
 import (
+	"github.com/stretchr/testify/assert"
 	"testing"
 	"trees/utils"
 )
@@ -10,7 +11,7 @@ func TestRadix(t *testing.T) {
 
 	m := make(map[string]interface{})
 	tree := NewRadixTree()
-	for i, s := range utils.RandStrs(100) {
+	for i, s := range utils.RandStrs(100, 1, 10) {
 		k, v := s, s
 		if i == 0 || k > max {
 			max = k
@@ -19,54 +20,44 @@ func TestRadix(t *testing.T) {
 			min = k
 		}
 		m[k] = v
-		tree.Insert(k, v)
+		tree.Insert([]byte(k), v)
 	}
-	if len(m) != tree.Size() {
-		t.Fatalf("map size %d, but tree size: %d", len(m), tree.Size())
-	}
+	assert.Equal(t, len(m), tree.size)
 
 	for k, v := range m {
-		if vv, ok := tree.Get(k); ok && vv != v {
-			t.Fatalf("invalid key %q value: %q, want: %q", k, vv, v)
-		}
+		assert.Equal(t, v, tree.Search([]byte(k)))
 	}
 
-	minKey, _, _ := tree.Min()
-	if min != minKey {
-		t.Fatalf("want min %q, got %q", min, minKey)
-	}
-	maxKey, _, _ := tree.Max()
-	if max != maxKey {
-		t.Fatalf("want max %q, got %q", max, maxKey)
-	}
+	minKey, _ := tree.Min()
+	assert.Equal(t, min, string(minKey))
+	maxKey, _ := tree.Max()
+	assert.Equal(t, max, string(maxKey))
 }
 
 func TestInsertAndDelete(t *testing.T) {
 	tree := NewRadixTree()
-	tree.Insert("romane", 31)
-	tree.Insert("roman", 30)
-	tree.Delete("roman") // 如果 parent 是 root 节点，则不能删除
+	tree.Insert([]byte("romane"), 31)
+	tree.Insert([]byte("roman"), 30)
+	tree.Delete([]byte("roman")) // 如果 parent 是 root 节点，则不能删除
 }
 
 func TestDelete(t *testing.T) {
 	tree := NewRadixTree()
-	strs := utils.RandStrs(100)
+	strs := utils.RandStrs(100, 1, 10)
 	m := make(map[string]bool)
 	for _, s := range strs {
-		tree.Insert(s, nil)
+		tree.Insert([]byte(s), nil)
 		m[s] = true
 	}
 
-	strs = utils.RandStrs(100)
+	strs = utils.RandStrs(100, 1, 10)
 	for _, s := range strs {
 		if _, ok := m[s]; !ok {
 			m[s] = false
 		}
 	}
 	for k, inserted := range m {
-		_, existed := tree.Delete(k)
-		if inserted != existed {
-			t.Fatalf("delete %s failed, want %t, got %t", k, inserted, existed)
-		}
+		_, existed := tree.Delete([]byte(k))
+		assert.Equal(t, inserted, existed)
 	}
 }

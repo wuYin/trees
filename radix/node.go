@@ -1,26 +1,20 @@
-//
-// 基数树实现
-// https://en.wikipedia.org/wiki/Radix_tree
-//
 package radix
 
 import "sort"
 
-//
-// 存放实际 kv 的叶子节点
-//
 type leaf struct {
-	k string
-	v interface{}
+	key []byte
+	val interface{}
 }
 
-//
-// 包含前缀和前缀边的树节点
-//
+// 混合了前缀和叶子的节点
+// 若 leaf 有值则为叶子节点
+// 若 prefix 有值则为前缀节点
+// 二者均有值则为混合节点
 type node struct {
-	leaf   *leaf  // 是叶子节点则有值
-	prefix string // 当前节点抽离出的子节点的前缀
-	edges  edges  // 边
+	leaf   *leaf
+	prefix []byte
+	edges  edges
 }
 
 func (n *node) isLeafNode() bool {
@@ -35,12 +29,12 @@ func (n *node) isMixedNode() bool {
 	return n.isLeafNode() && n.isPrefixNode()
 }
 
-func (n *node) binSearch(label byte) int {
+func (n *node) binSearch(k byte) int {
 	l := len(n.edges)
 	i := sort.Search(l, func(i int) bool {
-		return n.edges[i].label >= label
+		return n.edges[i].k >= k
 	})
-	if i < l && n.edges[i].label == label {
+	if i < l && n.edges[i].k == k {
 		return i // 返回前缀边的子节点
 	}
 	return -1
@@ -48,7 +42,7 @@ func (n *node) binSearch(label byte) int {
 
 func (n *node) searchEdge(label byte) *node {
 	if i := n.binSearch(label); i != -1 {
-		return n.edges[i].node // 返回前缀边的子节点
+		return n.edges[i].n // 返回前缀边的子节点
 	}
 	return nil
 }
@@ -58,9 +52,9 @@ func (n *node) addEdge(e edge) {
 	n.edges.resort()
 }
 
-func (n *node) replaceEdge(label byte, newNode *node) {
-	if i := n.binSearch(label); i != -1 {
-		n.edges[i].node = newNode
+func (n *node) replaceEdge(k byte, newNode *node) {
+	if i := n.binSearch(k); i != -1 {
+		n.edges[i].n = newNode
 		return
 	}
 	panic("replace unexpected")
@@ -79,18 +73,15 @@ func (n *node) deleteEdge(label byte) {
 
 // 提升唯一子节点
 func (n *node) replaceByOnlyChild() {
-	child := n.edges[0].node
-	n.prefix += child.prefix
+	child := n.edges[0].n
+	n.prefix = append(n.prefix, child.prefix...)
 	n.leaf = child.leaf
 	n.edges = child.edges
 }
 
-//
-// 前缀边
-//
 type edge struct {
-	label byte  // 边值
-	node  *node // 末端节点
+	k byte  // 边的 byte
+	n *node // 末端节点
 }
 
 // 方便边的搜索
@@ -101,7 +92,7 @@ func (e edges) Len() int {
 }
 
 func (e edges) Less(i, j int) bool {
-	return e[i].label < e[j].label
+	return e[i].k < e[j].k
 }
 
 func (e edges) Swap(i, j int) {
