@@ -119,3 +119,26 @@ func (n *node) makeRoomForNewChild(diffKey byte) int {
 	}
 	return i
 }
+
+// delete one key from leaf
+func (n *node) delete(k byte) {
+	// delete child pointer from childs
+	i := n.key2childIndex(k)
+	for ; i < n.size-1; i++ {
+		n.childs[i] = n.childs[i+1]
+	}
+	n.childs[i] = nil
+
+	// delete key from keys
+	j := 0
+	var k2 byte
+	for j, k2 = range n.keys {
+		if k == k2 {
+			break
+		}
+	}
+	for ; j < n.size-1; j++ {
+		n.keys[j] = n.keys[j+1] // move one index to front
+	}
+	n.keys[j] = byte(0)
+}

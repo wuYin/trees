@@ -46,6 +46,20 @@ func (n *node) maxSize() (size int) {
 	return size
 }
 
+func (n *node) minSize() (size int) {
+	switch n.nodeType {
+	case NODE4:
+		size = MIN_NODE4
+	case NODE16:
+		size = MIN_NODE16
+	case NODE48:
+		size = MIN_NODE48
+	case NODE256:
+		size = MIN_NODE256
+	}
+	return size
+}
+
 type node struct {
 	size     int // node 的其他字段均为预分配，其长度不能作为子节点数量
 	nodeType nodeType
@@ -121,6 +135,10 @@ func (n *node) isMatch(key []byte) bool {
 
 func (n *node) isFull() bool {
 	return n.size >= n.maxSize()
+}
+
+func (n *node) isEmpty() bool {
+	return n.size < n.minSize()
 }
 
 //

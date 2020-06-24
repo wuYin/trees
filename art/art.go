@@ -127,8 +127,45 @@ func (t *ArtTree) search(n *node, key []byte, depth int) interface{} {
 }
 
 func (t *ArtTree) Delete(key []byte) bool {
+	key = appendNULL(key)
+	return t.delete(t.root, nil, 0, key)
+}
 
-	return true
+func (t *ArtTree) delete(cur *node, parent *node, depth int, key []byte) bool {
+	// search leaf node and delete it
+	if cur == nil {
+		return false
+	}
+
+	diffIdx := cur.mismatchPrefixLen(key, depth)
+	if diffIdx != cur.prefixLen {
+		return false
+	}
+
+	if cur.isLeaf() {
+		if !cur.isMatch(key) {
+			return false
+		}
+		if parent == nil {
+			return false // TODO: delete root
+		}
+		// 1. delete the leaf
+		leafPrefixKey := key[depth]
+		parent.delete(leafPrefixKey)
+		parent.size--
+		t.size--
+
+		// 2. lazy expansion
+		if parent.size == 1 {
+
+		}
+
+		return true
+	}
+
+	depth += cur.prefixLen
+	next := cur.key2childRef(key[depth])
+	return t.delete(*next, cur, depth, key) // depth no need +1, depth is index now
 }
 
 func (t *ArtTree) Size() int {
