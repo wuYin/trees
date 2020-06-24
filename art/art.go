@@ -42,7 +42,7 @@ func (t *ArtTree) insert(cur *node, curRef **node, depth int, key []byte, val in
 
 		parent := newNode4()
 		parent.prefixLen = commonLen // 当前深度的公共前缀长度
-		utils.Memcpy(parent.prefix, key[depth:depth+commonLen], utils.Min(parent.prefixLen, MAX_PREFIX_LEN))
+		utils.Memcpy(parent.prefix, key[depth:depth+commonLen], utils.Min(commonLen, MAX_PREFIX_LEN))
 
 		// 节点替换，用第一个字节作为 key 建立 childs 指针
 		*curRef = parent
@@ -63,7 +63,6 @@ func (t *ArtTree) insert(cur *node, curRef **node, depth int, key []byte, val in
 		parent.addChild(key[depth+diffIdx], leaf)
 
 		// 添加当前节点
-
 		// 拷贝前缀到父节点
 		parent.prefixLen = diffIdx // 注意此处 index 和 len 的关系是相等的
 		utils.Memcpy(parent.prefix, cur.prefix, diffIdx)
@@ -149,23 +148,22 @@ func (t *ArtTree) delete(cur *node, parent *node, depth int, key []byte) bool {
 		if parent == nil {
 			return false // TODO: delete root
 		}
-		// 1. delete the leaf
+		// 1. 删除叶子节点
 		leafPrefixKey := key[depth]
 		parent.delete(leafPrefixKey)
 		parent.size--
 		t.size--
 
-		// 2. lazy expansion
-		if parent.size == 1 {
-
+		// 2. 收缩
+		if parent.isEmpty() {
+			parent.shrink()
 		}
-
 		return true
 	}
 
 	depth += cur.prefixLen
 	next := cur.key2childRef(key[depth])
-	return t.delete(*next, cur, depth, key) // depth no need +1, depth is index now
+	return t.delete(*next, cur, depth, key) // depth 作为 key 的索引使用，先 +1 再 -1
 }
 
 func (t *ArtTree) Size() int {

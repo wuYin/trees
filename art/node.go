@@ -17,7 +17,7 @@ const (
 )
 
 const (
-	MIN_NODE4 = 0 // 节点收缩下限
+	MIN_NODE4 = 2 // 节点收缩下限
 	MAX_NODE4 = 4 // 节点膨胀上限
 
 	MIN_NODE16 = 5
@@ -27,7 +27,7 @@ const (
 	MAX_NODE48 = 48
 
 	MIN_NODE256 = 49
-	MAX_NODE256 = 256
+	MAX_NODE256 = 255
 
 	MAX_PREFIX_LEN = 8 // 当前缀超过 8 bytes 则从悲观模式切换到乐观模式
 )
@@ -115,7 +115,7 @@ func newNode48() *node {
 func newNode256() *node {
 	return &node{
 		nodeType: NODE256,
-		keys:     make([]byte, MAX_NODE256),
+		keys:     nil,
 		childs:   make([]*node, MAX_NODE256),
 		prefix:   make([]byte, MAX_NODE256),
 	}
@@ -125,16 +125,16 @@ func (n *node) isLeaf() bool {
 	return n.nodeType == LEAF
 }
 
-// check key exactly match leaf node whole key or not
+// 检查 key 和当前叶子节点的完整 key 是否完全一致
 func (n *node) isMatch(key []byte) bool {
 	if !n.isLeaf() {
-		return false // inner node doesn't storage kv
+		return false
 	}
 	return bytes.Compare(n.key, key) == 0
 }
 
 func (n *node) isFull() bool {
-	return n.size >= n.maxSize()
+	return n.size >= n.maxSize() // 已达到最大容量，需要先膨胀
 }
 
 func (n *node) isEmpty() bool {
@@ -144,11 +144,11 @@ func (n *node) isEmpty() bool {
 //
 // utils
 //
-// 从低节点 lower 直接拷贝元信息
-func (n *node) copyMeta(lower *node) {
-	n.size = lower.size
-	n.prefix = lower.prefix
-	n.prefixLen = lower.prefixLen
+// 从旧节点拷贝元信息
+func (n *node) copyMeta(old *node) {
+	n.size = old.size
+	n.prefix = old.prefix
+	n.prefixLen = old.prefixLen
 }
 
 // 映射 key 到 child

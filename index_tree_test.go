@@ -34,12 +34,3 @@ func TestArt(t *testing.T) {
 	tree.Insert([]byte("12345678xy"), 3)
 	pp.Println(tree.Dump())
 }
-
-func TestAtrDelete(t *testing.T) {
-	tree := art.NewArtTree()
-	tree.Insert(utils.ToBytes("12", '0'), 12)
-	tree.Insert(utils.ToBytes("13", '0'), 13)
-	// pp.Println(tree)
-	pp.Println("-------------", tree.Delete(utils.ToBytes("12", '0')))
-	pp.Println(tree)
-}

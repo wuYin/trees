@@ -44,12 +44,12 @@ func RandStrs(count int, minLen, maxLen int) []string {
 		for n < minLen || n > maxLen {
 			n = rand.Intn(maxLen)
 		}
-		strs[i] = RandStr(n)
+		strs[i] = randSizeStr(n)
 	}
 	return strs
 }
 
-func RandStr(length int) string {
+func randSizeStr(length int) string {
 	buf := make([]rune, length)
 	for i := range buf {
 		buf[i] = rs[rand.Intn(rsLen)]
